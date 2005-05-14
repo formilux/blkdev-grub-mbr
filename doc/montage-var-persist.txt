@@ -1,0 +1,25 @@
+
+avant init :
+------------
+  /sbin/restore-etc
+
+
+
+if ! test -e /etc/passwd ; then
+  mount -r /flash
+  mount ramfs /etc
+  tar -C /etc -zx /flash/cfg/config.cur
+  || tar -C /etc -zx /flash/cfg/config.bak
+  || tar -C /etc -zx /flash/cfg/config.fac
+fi
+
+
+avant les services :
+--------------------
+
+if ! mount /persist ; then
+   mkjffs2 /dev/persist
+   mount /var/persist
+   || mount ram /persist
+fi
+
