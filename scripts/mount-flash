@@ -1,0 +1,24 @@
+#!/bin/bash
+
+# This checks /proc/cmdline for the LAST 'flash=' statement, and uses its value
+# as a /dev entry to mount it read-only into /flash/
+
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+FLASHDIR=/flash
+
+flash="$(cat /proc/cmdline)"
+if [ -n "${flash##*flash=*}" ]; then
+  echo "No flash device specified in /proc/cmdline."
+  exit 1
+fi
+flash=${flash##*flash=}
+flash=${flash%% *}
+[ -n "${flash##/dev/*}" ] && flash="/dev/$flash"
+
+echo "Mounting ${flash} on $FLASHDIR..."
+cd /
+umount -d $FLASHDIR >/dev/null 2>&1
+if ! mount -r $flash $FLASHDIR >/dev/null 2>&1; then
+  echo "Error: mount failed."
+  exit 1
+fi
