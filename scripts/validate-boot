@@ -1,0 +1,53 @@
+#!/bin/bash
+
+# This checks /proc/cmdline for the LAST 'flash=' statement, and truncates its
+# value to find a candidate device to be used as an MBR hosting grub's default
+# next boot entry. It needs /flash to be mounted exec.
+
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+FLASH=/flash
+
+flash="$(cat /proc/cmdline)"
+if [ -n "${flash##*flash=*}" ]; then
+  echo "No flash device specified in /proc/cmdline."
+  exit 1
+fi
+flash=${flash##*flash=}
+flash=${flash%% *}
+[ -n "${flash##/dev/*}" ] && flash="/dev/$flash"
+
+flashnum=${flash##*[^0-9]}
+mbr=${flash%$flashnum}
+mbrdev=${mbr##/dev/}
+while [ -n "$mbrdev" ] && ! grep -qwF "$mbrdev" /proc/partitions; do
+  mbrdev=${mbrdev%?}
+done
+
+if [ -z "$mbrdev" ]; then
+  echo "WARNING: MBR not found. Please check $FLASH/boot/grub/menu.lst"
+  exit 1
+fi
+
+### we get the grub-mbr-default tool from /flash, so that if for any reason we
+### failed to access it, the image cannot be marked as valid.
+                     
+mbrdev=/dev/$mbrdev
+bin=$FLASH/boot/grub/grub-mbr-default
+
+if [ ! -x $bin ]; then
+  echo "Error: grub-mbr-default not found in $FLASH"
+  exit 1
+fi
+
+next=$($bin -q $mbrdev)
+
+if [ "$next" = "0" ]; then
+  echo "Running in recovery mode."
+elif [ "$next" = "2" ]; then
+  echo "Active config suffered a power failure."
+elif [ "$next" = "4" ]; then
+  echo "Backup config suffered a power failure."
+else
+  bin="$bin -q"
+fi
+$bin $mbrdev -2
