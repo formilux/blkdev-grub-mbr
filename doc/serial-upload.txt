@@ -1,0 +1,18 @@
+
+How to upload a kernel on the serial port
+
+# ln -s ttyS0 /dev/tty
+# oldcfg=$(stty -g)
+# stty litout -cstopb clocal -crtscts raw 115200
+# rx /tmp/file ; ret=$?
+# stty $oldcfg
+...
+# echo $ret
+
+Note: the 'rx' utility provided with busybox supports both 128 & 1k blocks
+(X and Y modem protocols), as well as CRC, which provides 11 kb/s at a
+line rate of 115200 bps with these options on the client :
+
+    /usr/bin/sx -Xbvvo -k
+
+
