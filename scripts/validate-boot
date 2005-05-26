@@ -32,7 +32,7 @@ fi
 ### failed to access it, the image cannot be marked as valid.
                      
 mbrdev=/dev/$mbrdev
-bin=$FLASH/boot/grub/grub-mbr-default
+bin=$FLASH/bin/grub-mbr-default
 
 if [ ! -x $bin ]; then
   echo "Error: grub-mbr-default not found in $FLASH"
