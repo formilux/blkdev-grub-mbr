@@ -104,10 +104,14 @@ if [ ! -r "$FILE" ]; then
 fi
 
 (cd $TEMP && tar zxf - >/dev/null 2>&1) < $FILE
-if [ $? -gt 0 ]; then
-  [ -z "$QUIET" ] && echo "Cannot extract image."
-  do_exit_error 2
-fi
+# we don't check the return code because gzip can return false errors
+# because of additionnal bytes resulting from various upload methods.
+# The md5 is the only valid test.
+
+#if [ $? -gt 0 ]; then
+#  [ -z "$QUIET" ] && echo "Cannot extract image."
+#  do_exit_error 2
+#fi
 
 if ! (cd $TEMP/* ; md5sum -c system.sig >/dev/null 2>&1); then
   [ -z "$QUIET" ] && echo "Corrupted image."
