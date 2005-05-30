@@ -2,16 +2,21 @@
 
 # This checks /proc/cmdline for the LAST 'flash=' statement, and truncates its
 # value to find a candidate device to be used as an MBR hosting grub's default
-# next boot entry. It needs /flash to be mounted exec.
+# next boot entry. It will mount /flash exec and use grub-mbr-default from
+# there to ensure that everything works as expected.
+
+# get out of /flash just in case.
+cd /
 
 export PATH=/bin:/sbin:/usr/bin:/usr/sbin
-FLASH=/flash
+FLASHDIR=/flash
 
 flash="$(cat /proc/cmdline)"
 if [ -n "${flash##*flash=*}" ]; then
   echo "No flash device specified in /proc/cmdline."
   exit 1
 fi
+
 flash=${flash##*flash=}
 flash=${flash%% *}
 [ -n "${flash##/dev/*}" ] && flash="/dev/$flash"
@@ -24,18 +29,38 @@ while [ -n "$mbrdev" ] && ! grep -qwF "$mbrdev" /proc/partitions; do
 done
 
 if [ -z "$mbrdev" ]; then
-  echo "WARNING: MBR not found. Please check $FLASH/boot/grub/menu.lst"
+  echo "WARNING: MBR not found. Please check $FLASHDIR/boot/grub/menu.lst"
   exit 1
 fi
+
+# unmounts /flash
+umount_flash() {
+  if ! umount -d $FLASHDIR >/dev/null 2>&1; then
+    cd /
+    if ! umount -d $FLASHDIR >/dev/null 2>&1; then
+      echo "Error: cannot unmount $FLASHDIR"
+      return 1
+    else
+      echo "Warning: ${0##*/} forgot to leave $FLASHDIR before unmounting it."
+    fi
+  fi
+  return 0
+}
 
 ### we get the grub-mbr-default tool from /flash, so that if for any reason we
 ### failed to access it, the image cannot be marked as valid.
                      
 mbrdev=/dev/$mbrdev
-bin=$FLASH/bin/grub-mbr-default
+bin=$FLASHDIR/bin/grub-mbr-default
+
+if ! mount -r $flash $FLASHDIR >/dev/null 2>&1; then
+  echo "Error: mounting ${flash} on $FLASHDIR failed."
+  exit 1
+fi
 
 if [ ! -x $bin ]; then
-  echo "Error: grub-mbr-default not found in $FLASH"
+  echo "Error: grub-mbr-default not found in $FLASHDIR"
+  umount_flash
   exit 1
 fi
 
@@ -51,3 +76,4 @@ else
   bin="$bin -q"
 fi
 $bin $mbrdev -2
+umount_flash
