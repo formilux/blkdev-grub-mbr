@@ -135,8 +135,8 @@ if ! (cd $TEMP/* ; md5sum -c system.sig >/dev/null 2>&1); then
   do_exit_error 2
 fi
 
-IMGVER=$(cat $TEMP/*/system.ver || cat $TEMP/*/kernel.ver 2>/dev/null)
 if [ -n "$SHOW_VERSION" ]; then
+  IMGVER=$(cat $TEMP/*/system.ver || cat $TEMP/*/kernel.ver 2>/dev/null)
   [ -n "$IMGVER" ] && echo "$IMGVER" || echo "unknown"
 fi
 
