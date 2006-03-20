@@ -145,7 +145,8 @@ fi
 set -- $(grep "^Model:" /usr/share/factory/version 2>/dev/null)
 MODEL="$2"
 if [ -z "$FORCE" -a \
-     -n "$MODEL" -a -n "$IMGVER" -a -n "${IMGVER##*$MODEL-*}" ]; then
+     -n "$MODEL" -a -n "$IMGVER" -a \
+     -n "${IMGVER##*-$MODEL-*}" -a -n "${IMGVER##*$MODEL-*}" ]; then
   [ -z "$QUIET" ] && echo "Wrong image for model $MODEL."
   do_exit_error 2
 fi
