@@ -176,7 +176,7 @@ if [ -n "$MOUNTED_RO" ]; then
 fi
 
 if [ -n "$MOUNTED" ] && ! mount -wo remount $FLASHDIR >/dev/null 2>&1 || \
-  ! mount $FLASH $FLASHDIR >/dev/null 2>&1; then
+  ! mount -n $FLASH $FLASHDIR >/dev/null 2>&1; then
   [ -z "$QUIET" ] && echo "Cannot mount flash."
   do_exit_error 3
 else
