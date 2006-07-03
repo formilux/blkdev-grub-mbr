@@ -5,6 +5,10 @@
 # next boot entry. It will mount /flash exec and use grub-mbr-default from
 # there to ensure that everything works as expected.
 
+# If an 'mbr=' statement is present, it will use it instead of the flash, and
+# take it as a comma-separated list of MBR devices. This is useful with RAID1
+# for instance. Eg: mbr=sda,sdb
+
 # get out of /flash just in case.
 cd /
 
@@ -39,7 +43,7 @@ if [ ${#mbrlist[@]} -eq 0 ]; then
   flashnum=${flash##*[^0-9]}
   mbr=${flash%$flashnum}
   mbrdev=${mbr##/dev/}
-  while [ -n "$mbrdev" ] && ! grep -qwF "$mbrdev" /proc/partitions; do
+  while [ -n "$mbrdev" ] && ! grep -q "$mbrdev\( .*\)\?\$" /proc/partitions; do
     mbrdev=${mbrdev%?}
   done
   if [ -z "$mbrdev" ]; then
@@ -83,8 +87,7 @@ fi
 
 # look for the first working MBR
 for mbrdev in "${mbrlist[@]}"; do
-  echo -n "Checking MBR device $mbrdev : "
-  next=$($bin -q "$mbrdev") && break
+  next=$($bin -q "$mbrdev" 2>/dev/null) && break
 done
 
 if [ "$next" = "0" ]; then
@@ -97,7 +100,7 @@ else
   bin="$bin -q"
 fi
 for mbrdev in "${mbrlist[@]}"; do
-  echo -n "Updating MBR device $mbrdev : "
+  echo "Validating boot on MBR device $mbrdev..."
   $bin $mbrdev -2
 done
 umount_flash
