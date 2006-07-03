@@ -21,16 +21,34 @@ flash=${flash##*flash=}
 flash=${flash%% *}
 [ -n "${flash##/dev/*}" ] && flash="/dev/$flash"
 
-flashnum=${flash##*[^0-9]}
-mbr=${flash%$flashnum}
-mbrdev=${mbr##/dev/}
-while [ -n "$mbrdev" ] && ! grep -qwF "$mbrdev" /proc/partitions; do
-  mbrdev=${mbrdev%?}
-done
+mbrlist=( )
+mbr="$(cat /proc/cmdline)"
+if [ -z "${mbr##*mbr=*}" ]; then
+  # mbr specified in /proc/cmdline. It may be a comma-separated list.
+  mbr=${mbr##*mbr=}
+  mbr=${mbr%% *}
+  for mbrdev in ${mbr//,/ }; do
+    [ -n "$mbrdev" ] || continue
+    [ -n "${mbrdev##/dev/*}" ] && mbrdev="/dev/$mbrdev"
+    mbrlist[${#mbrlist[@]}]="$mbrdev"
+  done
+fi
 
-if [ -z "$mbrdev" ]; then
-  echo "WARNING: MBR not found. Please check $FLASHDIR/boot/grub/menu.lst"
-  exit 1
+if [ ${#mbrlist[@]} -eq 0 ]; then
+  # mbr unspecified, use the one from flash.
+  flashnum=${flash##*[^0-9]}
+  mbr=${flash%$flashnum}
+  mbrdev=${mbr##/dev/}
+  while [ -n "$mbrdev" ] && ! grep -qwF "$mbrdev" /proc/partitions; do
+    mbrdev=${mbrdev%?}
+  done
+  if [ -z "$mbrdev" ]; then
+    echo "FATAL: MBR not found."
+    echo "Please check the 'mbr' parameter in $FLASHDIR/boot/grub/menu.lst"
+    exit 1
+  fi
+  [ -n "${mbrdev##/dev/*}" ] && mbrdev="/dev/$mbrdev"
+  mbrlist[${#mbrlist[@]}]="$mbrdev"
 fi
 
 # unmounts /flash
@@ -50,7 +68,6 @@ umount_flash() {
 ### we get the grub-mbr-default tool from /flash, so that if for any reason we
 ### failed to access it, the image cannot be marked as valid.
                      
-mbrdev=/dev/$mbrdev
 bin=$FLASHDIR/bin/grub-mbr-default
 
 if ! mount -r $flash $FLASHDIR >/dev/null 2>&1; then
@@ -64,7 +81,11 @@ if [ ! -x $bin ]; then
   exit 1
 fi
 
-next=$($bin -q $mbrdev)
+# look for the first working MBR
+for mbrdev in "${mbrlist[@]}"; do
+  echo -n "Checking MBR device $mbrdev : "
+  next=$($bin -q "$mbrdev") && break
+done
 
 if [ "$next" = "0" ]; then
   echo "Running in recovery mode."
@@ -75,5 +96,8 @@ elif [ "$next" = "4" ]; then
 else
   bin="$bin -q"
 fi
-$bin $mbrdev -2
+for mbrdev in "${mbrlist[@]}"; do
+  echo -n "Updating MBR device $mbrdev : "
+  $bin $mbrdev -2
+done
 umount_flash
