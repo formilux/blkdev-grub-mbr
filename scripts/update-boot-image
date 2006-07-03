@@ -255,7 +255,7 @@ fi
 flashnum=${FLASH##*[^0-9]}
 mbr=${FLASH%$flashnum}
 mbrdev=${mbr##/dev/}
-while [ -n "$mbrdev" ] && ! grep -q " $mbrdev\$" /proc/partitions; do
+while [ -n "$mbrdev" ] && ! grep -qwF "$mbrdev" /proc/partitions; do
   mbrdev=${mbrdev%?}
 done
 
