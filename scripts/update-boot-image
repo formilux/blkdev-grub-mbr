@@ -1,5 +1,6 @@
 #!/bin/sh
 
+## update-boot-image 20070102
 ## Usage :
 ##   $ update-boot-image [-k] [-h] [-n] [-q] [-f] [-v] [-m mntdir] [-d device]
 ##                       [-b mbrlist] $DIR/image.tgz
@@ -128,7 +129,7 @@ if [ ! -r "$FILE" ]; then
   do_exit_error 1
 fi
 
-(cd $TEMP && tar zxf - >/dev/null 2>&1) < $FILE
+(cd $TEMP 2>/dev/null && tar zxf - >/dev/null 2>&1) < $FILE
 # we don't check the return code because gzip can return false errors
 # because of additionnal bytes resulting from various upload methods.
 # The md5 is the only valid test.
@@ -138,7 +139,7 @@ fi
 #  do_exit_error 2
 #fi
 
-if ! (cd $TEMP/* ; md5sum -c system.sig) >/dev/null 2>&1; then
+if ! (cd $TEMP/* && md5sum -c system.sig) >/dev/null 2>&1; then
   [ -z "$QUIET" ] && echo "Corrupted image."
   do_exit_error 2
 fi
