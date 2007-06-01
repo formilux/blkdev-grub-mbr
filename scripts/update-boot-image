@@ -46,6 +46,7 @@ MODEL=
 MBRLIST=
 
 while [ $# -gt 0 ]; do
+  [ ".$1" = ".-" ] && break
   [ -z "${1##-*}" ] || break
   if [ ".$1" = ".-f" ]; then FORCE=1
   elif [ ".$1" = ".-n" ]; then DRYRUN=1
@@ -124,12 +125,15 @@ else
   fi
 fi
 
-if [ ! -r "$FILE" ]; then
-  [ -z "$QUIET" ] && echo "Image unreadable."
-  do_exit_error 1
+if [ "$FILE" != "-" ] ; then
+ if [ ! -r "$FILE" ]; then
+   [ -z "$QUIET" ] && echo "Image unreadable."
+   do_exit_error 1
+ fi
+ (cd $TEMP 2>/dev/null && tar zxf - >/dev/null 2>&1) < $FILE
+else
+ (cd $TEMP 2>/dev/null && tar zxf - >/dev/null 2>&1)
 fi
-
-(cd $TEMP 2>/dev/null && tar zxf - >/dev/null 2>&1) < $FILE
 # we don't check the return code because gzip can return false errors
 # because of additionnal bytes resulting from various upload methods.
 # The md5 is the only valid test.
