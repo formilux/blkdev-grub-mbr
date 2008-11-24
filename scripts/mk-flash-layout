@@ -260,6 +260,13 @@ try_mount_from_part() {
     return 1
 }
 
+# usage: $0 [$arg]
+usage() {
+    [ -n "$1" ] && echo "Unknown argument: $1" >&2
+    echo "Usage: ${0##*/} [-qvk] [-d state_dir] [-f flash_dir] [-h hw_dir]" >&2
+    exit 1
+}
+
 ####### MAIN #####
 
 while [ $# -gt 0 ]; do
@@ -268,18 +275,19 @@ while [ $# -gt 0 ]; do
     elif [ "$1" = "-v" ]; then VERBOSE=1
     elif [ "$1" = "-k" ]; then KEEP_MOUNTED=1
     elif [ "$1" = "-d" ]; then
+	[ $# -ge 2 ] || usage
         LAYOUT_DIR="$2"
         shift
     elif [ "$1" = "-f" ]; then
+	[ $# -ge 2 ] || usage
         FLASH_DIR="$2"
         shift
     elif [ "$1" = "-h" ]; then
+	[ $# -ge 2 ] || usage
         HARDW_DIR="$2"
         shift
     else
-        echo "Unknown argument: $1" >&2
-        echo "Usage: ${0##*/} [-qvk] [-d state_dir] [-f flash_dir] [-h hw_dir]" >&2
-        exit 1
+	usage "$1"
     fi
     shift
 done
