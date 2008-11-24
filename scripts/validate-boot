@@ -5,9 +5,9 @@
 # next boot entry. It will mount /flash exec and use grub-mbr-default from
 # there to ensure that everything works as expected.
 
-# If an 'mbr=' statement is present, it will use it instead of the flash, and
-# take it as a comma-separated list of MBR devices. This is useful with RAID1
-# for instance. Eg: mbr=sda,sdb
+# If an 'mbr=' statement is present, it will use in complement to the one of
+# the flash, and take it as a comma-separated list of MBR devices. This is
+# useful with RAID1 for instance. Eg: mbr=sda,sdb
 
 # get out of /flash just in case.
 cd /
@@ -15,45 +15,46 @@ cd /
 export PATH=/bin:/sbin:/usr/bin:/usr/sbin
 FLASHDIR=/flash
 
-flash="$(cat /proc/cmdline)"
-if [ -n "${flash##*flash=*}" ]; then
-  echo "No flash device specified in /proc/cmdline."
-  exit 1
-fi
+mount_flash_ro() {
+  local flash
 
-flash=${flash##*flash=}
-flash=${flash%% *}
-[ -n "${flash##/dev/*}" ] && flash="/dev/$flash"
+  unset FLASH_MBR FLASH_HW FLASH_SW
 
-mbrlist=( )
-mbr="$(cat /proc/cmdline)"
-if [ -z "${mbr##*mbr=*}" ]; then
-  # mbr specified in /proc/cmdline. It may be a comma-separated list.
-  mbr=${mbr##*mbr=}
-  mbr=${mbr%% *}
-  for mbrdev in ${mbr//,/ }; do
-    [ -n "$mbrdev" ] || continue
-    [ -n "${mbrdev##/dev/*}" ] && mbrdev="/dev/$mbrdev"
-    mbrlist[${#mbrlist[@]}]="$mbrdev"
-  done
-fi
-
-if [ ${#mbrlist[@]} -eq 0 ]; then
-  # mbr unspecified, use the one from flash.
-  flashnum=${flash##*[^0-9]}
-  mbr=${flash%$flashnum}
-  mbrdev=${mbr##/dev/}
-  while [ -n "$mbrdev" ] && ! grep -q "$mbrdev\( .*\)\?\$" /proc/partitions; do
-    mbrdev=${mbrdev%?}
-  done
-  if [ -z "$mbrdev" ]; then
-    echo "FATAL: MBR not found."
-    echo "Please check the 'mbr' parameter in $FLASHDIR/boot/grub/menu.lst"
-    exit 1
+  if [ -s /var/state/flash-layout.rc ]; then
+    . /var/state/flash-layout.rc
   fi
-  [ -n "${mbrdev##/dev/*}" ] && mbrdev="/dev/$mbrdev"
-  mbrlist[${#mbrlist[@]}]="$mbrdev"
-fi
+
+  if [ -z "$FLASH_SW" ]; then
+    if [ -x /sbin/mk-flash-layout ]; then
+      /sbin/mk-flash-layout -k && return 0
+      if [ -s /var/state/flash-layout.rc ]; then
+        . /var/state/flash-layout.rc
+      fi
+    fi
+  fi
+
+  if [ -z "$FLASH_SW" ]; then
+    flash="$(cat /proc/cmdline)"
+    if [ -n "${flash##*flash=*}" ]; then
+      echo "No flash device specified in /proc/cmdline."
+      return 1
+    fi
+    flash=${flash##*flash=}
+    flash=${flash%% *}
+    [ -n "${flash##/dev/*}" ] && flash="/dev/$flash"
+  else
+    flash=$FLASH_SW
+  fi
+
+  echo "Mounting ${flash} on $FLASHDIR..."
+  cd /
+  umount -n -d $FLASHDIR >/dev/null 2>&1
+  if ! mount -n -r $flash $FLASHDIR >/dev/null 2>&1; then
+    echo "Error: mount failed."
+    return 1
+  fi
+  return 0
+}
 
 # unmounts /flash
 umount_flash() {
@@ -74,19 +75,38 @@ umount_flash() {
                      
 bin=$FLASHDIR/bin/grub-mbr-default
 
-if ! mount -r $flash $FLASHDIR >/dev/null 2>&1; then
+if ! mount_flash_ro >/dev/null 2>&1; then
   echo "Error: mounting ${flash} on $FLASHDIR failed."
   exit 1
 fi
 
 if [ ! -x $bin ]; then
-  echo "Error: grub-mbr-default not found in $FLASHDIR"
+  echo "Error: grub-mbr-default not found in $FLASHDIR/bin"
   umount_flash
   exit 1
 fi
 
+if [ -s /var/state/flash-layout.rc ]; then
+  . /var/state/flash-layout.rc
+fi
+
+# we may also know about a list of MBRs from the kernel command line
+mbrlist=( )
+mbr="$(cat /proc/cmdline)"
+if [ -z "${mbr##*mbr=*}" ]; then
+  # mbr specified in /proc/cmdline. It may be a comma-separated list.
+  mbr=${mbr##*mbr=}
+  mbr=${mbr%% *}
+  for mbrdev in ${mbr//,/ }; do
+    [ -n "$mbrdev" ] || continue
+    [ -n "${mbrdev##/dev/*}" ] && mbrdev="/dev/$mbrdev"
+    [ "$mbrdev" != "$FLASH_MBR" ] || continue
+    mbrlist[${#mbrlist[@]}]="$mbrdev"
+  done
+fi
+
 # look for the first working MBR
-for mbrdev in "${mbrlist[@]}"; do
+for mbrdev in $FLASH_MBR "${mbrlist[@]}"; do
   next=$($bin -q "$mbrdev" 2>/dev/null) && break
 done
 
@@ -99,7 +119,8 @@ elif [ "$next" = "4" ]; then
 else
   bin="$bin -q"
 fi
-for mbrdev in "${mbrlist[@]}"; do
+
+for mbrdev in $FLASH_MBR "${mbrlist[@]}"; do
   echo "Validating boot on MBR device $mbrdev..."
   $bin $mbrdev -2
 done
