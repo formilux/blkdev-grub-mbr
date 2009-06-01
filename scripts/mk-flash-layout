@@ -8,7 +8,7 @@
 # It supports the following command line options :
 #   -q : quiet
 #   -v : verbose
-#   -k : keep filesystems mounted
+#   -k : keep filesystems mounted and do not complain if cannot write
 #   -d <dir> : use <dir> instead of /var/state for the layout file
 #   -f <dir> : use <dir> instead of /flash for the software partition
 #   -h <dir> : use <dir> for the hardware partition
@@ -367,10 +367,11 @@ esac
 if [ "$FLASH_TYPE" = "PART" ]; then
     ATTEMPTED_PART="$FLASH_SW"
     if try_mount_from_part; then
-        dump_layout
         if [ -n "$KEEP_MOUNTED" ]; then
+            dump_layout 2>/dev/null
             [ -z "$QUIET" ] && echo "Mounted ${FLASH_SW} on $FLASH_DIR"
         else
+            dump_layout
             [ -n "$VERBOSE" ] && echo "Found flash on ${FLASH_SW}"
             umount_flash
         fi
@@ -381,10 +382,11 @@ fi
 if [ "$FLASH_TYPE" = "MBR" ]; then
     ATTEMPTED_MBR="$FLASH_MBR"
     if try_mount_from_mbr; then
-        dump_layout
         if [ -n "$KEEP_MOUNTED" ]; then
+            dump_layout 2>/dev/null
             [ -z "$QUIET" ] && echo "Mounted ${FLASH_SW} on $FLASH_DIR"
         else
+            dump_layout
             [ -n "$VERBOSE" ] && echo "Found flash on ${FLASH_SW}"
             umount_flash
         fi
@@ -401,10 +403,11 @@ for mbr in $MBR_OTH; do
     FLASH_MBR=$mbr
     ATTEMPTED_OTH="${ATTEMPTED_OTH:+$ATTEMPTED_OTH }$FLASH_MBR"
     if try_mount_from_mbr; then
-        dump_layout
         if [ -n "$KEEP_MOUNTED" ]; then
+            dump_layout 2>/dev/null
             [ -z "$QUIET" ] && echo "Mounted ${FLASH_SW} on $FLASH_DIR"
         else
+            dump_layout
             [ -n "$VERBOSE" ] && echo "Found flash on ${FLASH_SW}"
             umount_flash
         fi
