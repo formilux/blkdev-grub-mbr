@@ -1,5 +1,8 @@
 #!/bin/sh
 
+MOUNTRETRY=""
+
+function try_mount {
 # This script tries its best to detect partitions and fill in
 # /var/state/flash-layout.rc with the related information. It cannot make use
 # of arrays nor complex variable manipulations because we want it to run even
@@ -428,5 +431,12 @@ if [ -n "$FALLBACK_MBR" ]; then
     exit 2
 fi
 
-[ -z "$QUIET" ] && echo "Failed to mount $FLASH_DIR from [ $ATTEMPTED_PART $ATTEMPTED_MBR $ATTEMPTED_OTH ]"
+[ -z "$QUIET" -a "$MOUNTRETRY" = "0"  ] && echo "Failed to mount $FLASH_DIR from [ $ATTEMPTED_PART $ATTEMPTED_MBR $ATTEMPTED_OTH ]"
+}
+
+try_mount "$@"
+for MOUNTRETRY in 8 7 6 5 4 3 2 1 0 ; do
+	sleep 1
+	try_mount "$@"
+done
 exit 1
