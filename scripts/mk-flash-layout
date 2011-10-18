@@ -37,6 +37,7 @@ FLASH_CMDLINE=
 IGNORED_PART=
 PART=
 
+BLOCK_ALL=
 MBR_ALL=
 MBR_OTH=
 PART_ALL=
@@ -431,12 +432,36 @@ if [ -n "$FALLBACK_MBR" ]; then
     exit 2
 fi
 
-[ -z "$QUIET" -a "$MOUNTRETRY" = "0"  ] && echo "Failed to mount $FLASH_DIR from [ $ATTEMPTED_PART $ATTEMPTED_MBR $ATTEMPTED_OTH ]"
+if [ -z "$QUIET" ] && [ "$MOUNTRETRY" = "0" -o -e "$LAYOUT_DIR/$LAYOUT_RC" ]; then
+    echo "Failed to mount $FLASH_DIR from [ $ATTEMPTED_PART $ATTEMPTED_MBR $ATTEMPTED_OTH ]"
+fi
 }
 
+########################################################
+# Main entry point : iterates over the previous function
+########################################################
 try_mount "$@"
+
+# Don't run through the loop if the layout file already exists, because this
+# means we already attempted to find the flash and went through this slow loop.
+if [ -e "$LAYOUT_DIR/$LAYOUT_RC" ]; then
+    exit 1
+fi
+
 for MOUNTRETRY in 8 7 6 5 4 3 2 1 0 ; do
 	sleep 1
+	echo -n -e "$MOUNTRETRY \r"
 	try_mount "$@"
 done
+
+# The flash was not found and it was our first pass. We'll touch the layout
+# file to remember that we have already tried hard to find the flash and that
+# we don't want to do insist next times.
+if [ ! -d "$LAYOUT_DIR/." ]; then
+    rm -f "$LAYOUT_DIR" >/dev/null
+    mkdir -p "$LAYOUT_DIR" || exit 1
+fi
+rm -f "$LAYOUT_DIR/$LAYOUT_TMP"
+touch "$LAYOUT_DIR/$LAYOUT_RC"
+
 exit 1
