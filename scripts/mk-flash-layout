@@ -2,7 +2,7 @@
 
 MOUNTRETRY=""
 
-function try_mount {
+try_mount() {
 # This script tries its best to detect partitions and fill in
 # /var/state/flash-layout.rc with the related information. It cannot make use
 # of arrays nor complex variable manipulations because we want it to run even
@@ -54,6 +54,8 @@ FLASH_MBR=
 FLASH_HW=
 FLASH_SW=
 FLASH_NV=
+FOUND_IMG1=
+FOUND_IMG2=
 
 # set it to non-null to keep the flash partition mounted
 KEEP_MOUNTED=
@@ -153,6 +155,8 @@ umount_flash() {
 mount_flash() {
     ( cd / ; $MOUNT -nr "/dev/$FLASH_SW" "$FLASH_DIR" ) >/dev/null 2>&1
     [ $? -gt 0 ] && return 1
+    [ -s "$FLASH_DIR/sys/active/kernel.img" ] && FOUND_IMG1=1
+    [ -s "$FLASH_DIR/sys/backup/kernel.img" ] && FOUND_IMG2=1
     [ -d "$FLASH_DIR/sys/." -a -d "$FLASH_DIR/cfg/." ] && return 0
     umount_flash
     return 1
@@ -184,6 +188,8 @@ dump_layout() {
     (   echo "FLASH_MBR=/dev/$FLASH_MBR"
         echo "FLASH_HW=/dev/$FLASH_HW"
         echo "FLASH_SW=/dev/$FLASH_SW"
+	echo "FOUND_IMG1=$FOUND_IMG1"
+	echo "FOUND_IMG2=$FOUND_IMG2"
     ) > "$LAYOUT_DIR/$LAYOUT_TMP"
     mv "$LAYOUT_DIR/$LAYOUT_TMP" "$LAYOUT_DIR/$LAYOUT_RC"
 }
