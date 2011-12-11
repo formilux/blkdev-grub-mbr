@@ -76,7 +76,7 @@ umount_flash() {
 bin=$FLASHDIR/bin/grub-mbr-default
 
 if ! mount_flash_ro >/dev/null 2>&1; then
-  echo "Error: mounting ${flash} on $FLASHDIR failed."
+  [ -n "$flash" ] && echo "Error: mounting ${flash} on $FLASHDIR failed."
   exit 1
 fi
 
