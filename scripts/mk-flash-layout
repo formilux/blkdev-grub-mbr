@@ -25,6 +25,8 @@ KEEP_MOUNTED=
 QUIET=
 # set by '-v' to increase verbosity level
 VERBOSE=
+# set by '-s' to force scanning even if no "img=" argument is found on cmdline
+SCAN=
 
 # set by '-f' to change the flash mount point
 FLASH_DIR=/flash
@@ -278,11 +280,14 @@ try_mount_from_part() {
     return 1
 }
 
-# usage: $0 [$arg]
-usage() {
-    [ -n "$1" ] && echo "Unknown argument: $1" >&2
-    echo "Usage: ${0##*/} [-qvk] [-d state_dir] [-f flash_dir] [-h hw_dir]" >&2
-    exit 1
+# Creates an empty layout file
+touch_layout_file() {
+    if [ ! -d "$LAYOUT_DIR/." ]; then
+	rm -f "$LAYOUT_DIR" >/dev/null
+	mkdir -p "$LAYOUT_DIR" || return 1
+    fi
+    rm -f "$LAYOUT_DIR/$LAYOUT_TMP" "$LAYOUT_DIR/$LAYOUT_RC"
+    touch "$LAYOUT_DIR/$LAYOUT_RC"
 }
 
 
@@ -444,6 +449,13 @@ try_mount() {
     fi
 }
 
+# usage: $0 [$arg]
+usage() {
+    [ -n "$1" ] && echo "Unknown argument: $1" >&2
+    echo "Usage: ${0##*/} [-qvks] [-d state_dir] [-f flash_dir] [-h hw_dir]" >&2
+    exit 1
+}
+
 #######################################################################
 # Main entry point : parses command line and iterates over try_mount()
 #######################################################################
@@ -453,6 +465,7 @@ while [ $# -gt 0 ]; do
     if [ "$1" = "-q" ]; then QUIET=1
     elif [ "$1" = "-v" ]; then VERBOSE=1
     elif [ "$1" = "-k" ]; then KEEP_MOUNTED=1
+    elif [ "$1" = "-s" ]; then SCAN=1
     elif [ "$1" = "-d" ]; then
 	[ $# -ge 2 ] || usage
         LAYOUT_DIR="$2"
@@ -479,6 +492,20 @@ get_img_from_cmdline
 umount_hardw
 umount_flash
 
+# Don't try to mount our partitions if the OS was not booted from a compliant
+# bootloader. Compliant bootloaders pass "img={active|backup}" on the kernel
+# command line. We still do it if "-s" was specified, which should only be used
+# for manual mounting.
+if [ -z "$IMG_CMDLINE" -a -z "$SCAN" ]; then
+    if [ -n "$VERBOSE" ]; then
+	echo "Not scanning partitions since 'img=' not passed by the bootloader."
+	echo "You may want to force a scan by passing '-s' on the command line."
+    fi
+    # Touch the layout file so that programs don't call us all the time.
+    touch_layout_file
+    exit 1
+fi
+
 # perform a first mount attempt.
 try_mount "$@"
 
@@ -497,11 +524,5 @@ done
 # The flash was not found and it was our first pass. We'll touch the layout
 # file to remember that we have already tried hard to find the flash and that
 # we don't want to do insist next times.
-if [ ! -d "$LAYOUT_DIR/." ]; then
-    rm -f "$LAYOUT_DIR" >/dev/null
-    mkdir -p "$LAYOUT_DIR" || exit 1
-fi
-rm -f "$LAYOUT_DIR/$LAYOUT_TMP"
-touch "$LAYOUT_DIR/$LAYOUT_RC"
-
+touch_layout_file
 exit 1
