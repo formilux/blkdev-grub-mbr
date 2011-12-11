@@ -1,8 +1,5 @@
 #!/bin/sh
 
-MOUNTRETRY=""
-
-try_mount() {
 # This script tries its best to detect partitions and fill in
 # /var/state/flash-layout.rc with the related information. It cannot make use
 # of arrays nor complex variable manipulations because we want it to run even
@@ -19,10 +16,28 @@ try_mount() {
 PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 
+#
+# The following settings may be altered by the command line options
+
+# set by '-k' to keep the flash partition mounted
+KEEP_MOUNTED=
+# set by '-q' to remove non-critical messages
+QUIET=
+# set by '-v' to increase verbosity level
+VERBOSE=
+
+# set by '-f' to change the flash mount point
+FLASH_DIR=/flash
+# set by '-h' to change the hardware flash mount point
+HARDW_DIR=/flash
+# set by '-d' to change the layout file directory
 LAYOUT_DIR=/var/state
+
+#
+# These settings may not be altered except for debugging purposes
+
 LAYOUT_RC=flash-layout.rc
 LAYOUT_TMP=.flash-layout.rc
-FLASH_DIR=/flash
 
 PROC_PART=/proc/partitions
 PROC_CMDL=/proc/cmdline
@@ -33,35 +48,12 @@ GMBRDEF=/sbin/grub-mbr-default
 MOUNT=/bin/mount
 UMOUNT=/bin/umount
 
+# Some global variables which will be initialized later
+MOUNTRETRY=""
+IMG_CMDLINE=
 FLASH_CMDLINE=
-IGNORED_PART=
-PART=
 
-BLOCK_ALL=
-MBR_ALL=
-MBR_OTH=
-PART_ALL=
-PART_OTH=
-ORPHAN_ALL=
-ORPHAN_OTH=
-FLASH_TYPE=NONE
-ATTEMPTED_PART=
-ATTEMPTED_MBR=
-ATTEMPTED_OTH=
-
-# variables which will be sent to flash-layout.rc
-FLASH_MBR=
-FLASH_HW=
-FLASH_SW=
-FLASH_NV=
-FOUND_IMG1=
-FOUND_IMG2=
-
-# set it to non-null to keep the flash partition mounted
-KEEP_MOUNTED=
-QUIET=
-VERBOSE=
-
+# utility functions
 get_flash_from_cmdline() {
     flash="$(cat $PROC_CMDL)"
     [ -z "${flash##*[ 	]flash=*}" ] || return 1
@@ -69,6 +61,14 @@ get_flash_from_cmdline() {
     flash="${flash%% *}"
     [ -z "${flash##/dev/*}" ] && flash="${flash#/dev/}"
     FLASH_CMDLINE="$flash"
+}
+
+get_img_from_cmdline() {
+    img="$(cat $PROC_CMDL)"
+    [ -z "${img##*[ 	]img=*}" ] || return 1
+    img="${img##*[ 	]img=}"
+    img="${img%% *}"
+    IMG_CMDLINE="$img"
 }
 
 # Given a partition name, it will return one of the MBRs from the MBR_ALL list
@@ -281,7 +281,171 @@ usage() {
     exit 1
 }
 
-####### MAIN #####
+
+#### Main mount function. This one may be called in loops because some devices
+#### may be detected late (eg: USB storage devices). The function automatically
+#### makes the script exit upon success or unrecoverable errors.
+
+try_mount() {
+    IGNORED_PART=
+    PART=
+    BLOCK_ALL=
+    MBR_ALL=
+    MBR_OTH=
+    PART_ALL=
+    PART_OTH=
+    ORPHAN_ALL=
+    ORPHAN_OTH=
+    FLASH_TYPE=NONE
+    ATTEMPTED_PART=
+    ATTEMPTED_MBR=
+    ATTEMPTED_OTH=
+
+    # variables which will be sent to flash-layout.rc
+    FLASH_MBR=
+    FLASH_HW=
+    FLASH_SW=
+    FLASH_NV=
+    FOUND_IMG1=
+    FOUND_IMG2=
+
+    # unmount possibly mounted flash
+    umount_flash
+
+    # Second, get a list of all known block devices
+    while read maj min size name rest; do
+	if [ -z "${maj##*[0-9]}" -a -n "$name" ]; then
+	    BLOCK_ALL="$BLOCK_ALL $name"
+	fi
+    done < $PROC_PART
+
+    # Now, find out which of these block devs are partitions, which ones are MBRs
+    # and which ones are orphans. Note that if an MBR ends with a digit, we check
+    # for the digit followed by "p" in the partitions. For instance, c0d0t1 is not
+    # the MBR of c0d0t12p2. We need to know the flash's type too.
+
+    # We want the flash to be tried first, but we don't want to lose precious
+    # ordering information between partitions, so we maintain two parallel lists
+    # for each type, one with and one without the flash. It's also a good
+    # opportunity to determine the flash type (MBR, PART, ORPHAN, NONE).
+
+    for mbr in $BLOCK_ALL $FLASH_CMDLINE; do
+	[ -n "$PART_ALL" -a -z "${PART_ALL##* $mbr *}" ] && continue
+	[ -n "$MBR_ALL" -a -z "${MBR_ALL##* $mbr *}" ] && continue
+	[ -z "${mbr##*[0-9]}" ] && mbrp=${mbr}p || mbrp=$mbr
+	found=0
+	for block in $BLOCK_ALL $FLASH_CMDLINE; do
+	    [ "$block" = "$mbr" ] && continue
+	    [ -z "${block##$mbrp*}" ] || continue
+	    [ -n "$PART_ALL" -a -z "${PART_ALL##* $block *}" ] && continue
+	    [ -n "$MBR_ALL" -a -z "${MBR_ALL##* $block *}" ] && continue
+	    PART_ALL="$PART_ALL $block "
+	    [ "$block" == "$FLASH_CMDLINE" ] && FLASH_TYPE=PART || PART_OTH="$PART_OTH $block "
+	    [ $found = 0 ] || continue
+	    MBR_ALL="$MBR_ALL $mbr "
+	    [ "$mbr" == "$FLASH_CMDLINE" ] &&  FLASH_TYPE=MBR || MBR_OTH="$MBR_OTH $mbr "
+
+	    found=1
+	done
+    done
+
+    # Find orphaned block devices, ie those which are neither the MBR or any
+    # partition nor the partition of any MBR.
+    ORPHAN_ALL=
+    for block in $BLOCK_ALL; do
+	[ -n "$PART_ALL" -a -z "${PART_ALL##* $block *}" ] && continue
+	[ -n "$MBR_ALL" -a -z "${MBR_ALL##* $block *}" ] && continue
+	ORPHAN_ALL="$ORPHAN_ALL $block "
+	[ "$block" == "$FLASH_CMDLINE" ] && FLASH_TYPE=ORPHAN || ORPHAN_OTH="$ORPHAN_OTH $block "
+    done
+
+    # echo BLOCK_ALL=$BLOCK_ALL
+    # echo FLASH_CMDLINE=$FLASH_CMDLINE
+    # echo FLASH_TYPE=$FLASH_TYPE
+    # echo MBR_ALL=$MBR_ALL
+    # echo MBR_OTH=$MBR_OTH
+    # echo PART_ALL=$PART_ALL
+    # echo PART_OTH=$PART_OTH
+    # echo ORPHAN_ALL=$ORPHAN_ALL
+    # echo ORPHAN_OTH=$ORPHAN_OTH
+
+    case "$FLASH_TYPE" in
+	PART) FLASH_SW=$FLASH_CMDLINE ;;
+	MBR)  FLASH_MBR=$FLASH_CMDLINE ;;
+    esac
+
+    if [ "$FLASH_TYPE" = "PART" ]; then
+	ATTEMPTED_PART="$FLASH_SW"
+	if try_mount_from_part; then
+	    if [ -n "$KEEP_MOUNTED" ]; then
+		dump_layout 2>/dev/null
+		[ -z "$QUIET" ] && echo "Mounted ${FLASH_SW} on $FLASH_DIR"
+	    else
+		dump_layout
+		[ -n "$VERBOSE" ] && echo "Found flash on ${FLASH_SW}"
+		umount_flash
+	    fi
+	    exit 0
+	fi
+    fi
+
+    if [ "$FLASH_TYPE" = "MBR" ]; then
+	ATTEMPTED_MBR="$FLASH_MBR"
+	if try_mount_from_mbr; then
+	    if [ -n "$KEEP_MOUNTED" ]; then
+		dump_layout 2>/dev/null
+		[ -z "$QUIET" ] && echo "Mounted ${FLASH_SW} on $FLASH_DIR"
+	    else
+		dump_layout
+		[ -n "$VERBOSE" ] && echo "Found flash on ${FLASH_SW}"
+		umount_flash
+	    fi
+	    exit 0
+	fi
+    fi
+
+    # either we failed to mount the given partition/MBR, or an invalid one was
+    # specified. We have to iterate through all MBRs. Note that we don't want to
+    # iterate through all partitions for now.
+
+    for mbr in $MBR_OTH; do
+	[ "$mbr" = "$ATTEMPTED_MBR" ] && continue
+	FLASH_MBR=$mbr
+	ATTEMPTED_OTH="${ATTEMPTED_OTH:+$ATTEMPTED_OTH }$FLASH_MBR"
+	if try_mount_from_mbr; then
+	    if [ -n "$KEEP_MOUNTED" ]; then
+		dump_layout 2>/dev/null
+		[ -z "$QUIET" ] && echo "Mounted ${FLASH_SW} on $FLASH_DIR"
+	    else
+		dump_layout
+		[ -n "$VERBOSE" ] && echo "Found flash on ${FLASH_SW}"
+		umount_flash
+	    fi
+	    exit 0
+	fi
+    done
+
+    # The partition was not found, maybe because it is not formatted.
+    # If we're sure we have found the correct partition combination, then we
+    # note it into the layout file, and return error code 2.
+    if [ -n "$FALLBACK_MBR" ]; then
+	FLASH_MBR=$FALLBACK_MBR
+	FLASH_HW=$FALLBACK_HW
+	FLASH_SW=$FALLBACK_SW
+
+	dump_layout
+	[ -z "$QUIET" ] && echo "Found unformatted flash on ${FLASH_SW}"
+	exit 2
+    fi
+
+    if [ -z "$QUIET" ] && [ "$MOUNTRETRY" = "0" -o -e "$LAYOUT_DIR/$LAYOUT_RC" ]; then
+	echo "Failed to mount $FLASH_DIR from [ $ATTEMPTED_PART $ATTEMPTED_MBR $ATTEMPTED_OTH ]"
+    fi
+}
+
+#######################################################################
+# Main entry point : parses command line and iterates over try_mount()
+#######################################################################
 
 while [ $# -gt 0 ]; do
     [ -z "${1##-*}" ] || break
@@ -306,146 +470,10 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-# First, check if a flash device was specified on the command line
+# First, check if a flash device and/or an image were specified on the command line
 get_flash_from_cmdline
+get_img_from_cmdline
 
-# unmount possibly mounted flash
-umount_flash
-
-# Second, get a list of all known block devices
-while read maj min size name rest; do
-    if [ -z "${maj##*[0-9]}" -a -n "$name" ]; then
-        BLOCK_ALL="$BLOCK_ALL $name"
-    fi
-done < $PROC_PART
-
-# Now, find out which of these block devs are partitions, which ones are MBRs
-# and which ones are orphans. Note that if an MBR ends with a digit, we check
-# for the digit followed by "p" in the partitions. For instance, c0d0t1 is not
-# the MBR of c0d0t12p2. We need to know the flash's type too.
-
-# We want the flash to be tried first, but we don't want to lose precious
-# ordering information between partitions, so we maintain two parallel lists
-# for each type, one with and one without the flash. It's also a good
-# opportunity to determine the flash type (MBR, PART, ORPHAN, NONE).
-
-for mbr in $BLOCK_ALL $FLASH_CMDLINE; do
-    [ -n "$PART_ALL" -a -z "${PART_ALL##* $mbr *}" ] && continue
-    [ -n "$MBR_ALL" -a -z "${MBR_ALL##* $mbr *}" ] && continue
-    [ -z "${mbr##*[0-9]}" ] && mbrp=${mbr}p || mbrp=$mbr
-    found=0
-    for block in $BLOCK_ALL $FLASH_CMDLINE; do
-        [ "$block" = "$mbr" ] && continue
-        [ -z "${block##$mbrp*}" ] || continue
-        [ -n "$PART_ALL" -a -z "${PART_ALL##* $block *}" ] && continue
-        [ -n "$MBR_ALL" -a -z "${MBR_ALL##* $block *}" ] && continue
-        PART_ALL="$PART_ALL $block "
-        [ "$block" == "$FLASH_CMDLINE" ] && FLASH_TYPE=PART || PART_OTH="$PART_OTH $block "
-        [ $found = 0 ] || continue
-        MBR_ALL="$MBR_ALL $mbr "
-        [ "$mbr" == "$FLASH_CMDLINE" ] &&  FLASH_TYPE=MBR || MBR_OTH="$MBR_OTH $mbr "
-
-        found=1
-    done
-done
-
-# Find orphaned block devices, ie those which are neither the MBR or any
-# partition nor the partition of any MBR.
-ORPHAN_ALL=
-for block in $BLOCK_ALL; do
-    [ -n "$PART_ALL" -a -z "${PART_ALL##* $block *}" ] && continue
-    [ -n "$MBR_ALL" -a -z "${MBR_ALL##* $block *}" ] && continue
-    ORPHAN_ALL="$ORPHAN_ALL $block "
-    [ "$block" == "$FLASH_CMDLINE" ] && FLASH_TYPE=ORPHAN || ORPHAN_OTH="$ORPHAN_OTH $block "
-done
-
-# echo BLOCK_ALL=$BLOCK_ALL
-# echo FLASH_CMDLINE=$FLASH_CMDLINE
-# echo FLASH_TYPE=$FLASH_TYPE
-# echo MBR_ALL=$MBR_ALL
-# echo MBR_OTH=$MBR_OTH
-# echo PART_ALL=$PART_ALL
-# echo PART_OTH=$PART_OTH
-# echo ORPHAN_ALL=$ORPHAN_ALL
-# echo ORPHAN_OTH=$ORPHAN_OTH
-
-case "$FLASH_TYPE" in
-    PART) FLASH_SW=$FLASH_CMDLINE ;;
-    MBR)  FLASH_MBR=$FLASH_CMDLINE ;;
-esac
-
-if [ "$FLASH_TYPE" = "PART" ]; then
-    ATTEMPTED_PART="$FLASH_SW"
-    if try_mount_from_part; then
-        if [ -n "$KEEP_MOUNTED" ]; then
-            dump_layout 2>/dev/null
-            [ -z "$QUIET" ] && echo "Mounted ${FLASH_SW} on $FLASH_DIR"
-        else
-            dump_layout
-            [ -n "$VERBOSE" ] && echo "Found flash on ${FLASH_SW}"
-            umount_flash
-        fi
-        exit 0
-    fi
-fi
-
-if [ "$FLASH_TYPE" = "MBR" ]; then
-    ATTEMPTED_MBR="$FLASH_MBR"
-    if try_mount_from_mbr; then
-        if [ -n "$KEEP_MOUNTED" ]; then
-            dump_layout 2>/dev/null
-            [ -z "$QUIET" ] && echo "Mounted ${FLASH_SW} on $FLASH_DIR"
-        else
-            dump_layout
-            [ -n "$VERBOSE" ] && echo "Found flash on ${FLASH_SW}"
-            umount_flash
-        fi
-        exit 0
-    fi
-fi
-
-# either we failed to mount the given partition/MBR, or an invalid one was
-# specified. We have to iterate through all MBRs. Note that we don't want to
-# iterate through all partitions for now.
-
-for mbr in $MBR_OTH; do
-    [ "$mbr" = "$ATTEMPTED_MBR" ] && continue
-    FLASH_MBR=$mbr
-    ATTEMPTED_OTH="${ATTEMPTED_OTH:+$ATTEMPTED_OTH }$FLASH_MBR"
-    if try_mount_from_mbr; then
-        if [ -n "$KEEP_MOUNTED" ]; then
-            dump_layout 2>/dev/null
-            [ -z "$QUIET" ] && echo "Mounted ${FLASH_SW} on $FLASH_DIR"
-        else
-            dump_layout
-            [ -n "$VERBOSE" ] && echo "Found flash on ${FLASH_SW}"
-            umount_flash
-        fi
-        exit 0
-    fi
-done
-
-# The partition was not found, maybe because it is not formatted.
-# If we're sure we have found the correct partition combination, then we
-# note it into the layout file, and return error code 2.
-if [ -n "$FALLBACK_MBR" ]; then
-    FLASH_MBR=$FALLBACK_MBR
-    FLASH_HW=$FALLBACK_HW
-    FLASH_SW=$FALLBACK_SW
-
-    dump_layout
-    [ -z "$QUIET" ] && echo "Found unformatted flash on ${FLASH_SW}"
-    exit 2
-fi
-
-if [ -z "$QUIET" ] && [ "$MOUNTRETRY" = "0" -o -e "$LAYOUT_DIR/$LAYOUT_RC" ]; then
-    echo "Failed to mount $FLASH_DIR from [ $ATTEMPTED_PART $ATTEMPTED_MBR $ATTEMPTED_OTH ]"
-fi
-}
-
-########################################################
-# Main entry point : iterates over the previous function
-########################################################
 try_mount "$@"
 
 # Don't run through the loop if the layout file already exists, because this
