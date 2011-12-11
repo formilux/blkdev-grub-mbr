@@ -28,8 +28,8 @@ VERBOSE=
 
 # set by '-f' to change the flash mount point
 FLASH_DIR=/flash
-# set by '-h' to change the hardware flash mount point
-HARDW_DIR=/flash
+# set by '-h' to use a different mount point for the flash hardware partition
+HARDW_DIR=
 # set by '-d' to change the layout file directory
 LAYOUT_DIR=/var/state
 
@@ -149,6 +149,11 @@ umount_flash() {
     $UMOUNT -nd "$FLASH_DIR" >/dev/null 2>&1
 }
 
+# This function silently unmounts $HARDW_DIR
+umount_hardw() {
+    $UMOUNT -nd "${HARDW_DIR:-$FLASH_DIR}" >/dev/null 2>&1
+}
+
 # This function mounts $FLASH_SW into $FLASH_DIR, then checks that it looks like
 # what is expected. It returns 0 if OK, otherwise non-zero. It assumes that
 # $FLASH_DIR is not mounted.
@@ -162,21 +167,20 @@ mount_flash() {
     return 1
 }
 
-# This function mounts $FLASH_HW into $FLASH_DIR, then checks that it looks like
+# This function mounts $FLASH_HW into $HARDW_DIR, then checks that it looks like
 # what is expected and unmounts it. It returns 0 if OK, otherwise non-zero. It
-# assumes that $FLASH_DIR is not mounted.
+# assumes that $HARDW_DIR is not mounted (which defaults to $FLASH_DIR).
 mount_part_hw() {
-    ( cd / ; $MOUNT -nr "/dev/$FLASH_HW" "$FLASH_DIR" ) >/dev/null 2>&1
+    ( cd / ; $MOUNT -nr "/dev/$FLASH_HW" "${HARDW_DIR:-$FLASH_DIR}" ) >/dev/null 2>&1
     [ $? -gt 0 ] && return 1
-    if [ -s "$FLASH_DIR/boot/firmware/firmware.img" ]; then
-        umount_flash
+    if [ -s "${HARDW_DIR:-$FLASH_DIR}/boot/firmware/firmware.img" ]; then
+        umount_hardw
         return 0
     else
-        umount_flash
+        umount_hardw
         return 1
     fi
 }
-
 
 # This function dumps the known variables into the layout file.
 dump_layout() {
@@ -308,9 +312,6 @@ try_mount() {
     FLASH_NV=
     FOUND_IMG1=
     FOUND_IMG2=
-
-    # unmount possibly mounted flash
-    umount_flash
 
     # Second, get a list of all known block devices
     while read maj min size name rest; do
@@ -474,6 +475,11 @@ done
 get_flash_from_cmdline
 get_img_from_cmdline
 
+# unmount possibly mounted flash
+umount_hardw
+umount_flash
+
+# perform a first mount attempt.
 try_mount "$@"
 
 # Don't run through the loop if the layout file already exists, because this
