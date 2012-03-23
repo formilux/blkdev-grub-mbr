@@ -305,6 +305,7 @@ if mv $TEMP/* $FLASHDIR/sys/tmp >/dev/null 2>&1; then
 	if ! rm -rf "$FLASHDIR/sys/$old" >/dev/null 2>&1; then
 	    rm -rf $FLASHDIR/sys/tmp >/dev/null 2>&1
 	    [ -z "$QUIET" ] && echo "Cannot remove old image."
+            sync
 	    do_exit_error 4
 	fi
     done
@@ -312,6 +313,7 @@ if mv $TEMP/* $FLASHDIR/sys/tmp >/dev/null 2>&1; then
   if ! mv "$FLASHDIR/sys/tmp" "$FLASHDIR/sys/$IMG_INSTALL" >/dev/null 2>&1; then
     rm -rf $FLASHDIR/sys/tmp >/dev/null 2>&1
     [ -z "$QUIET" ] && echo "Cannot install new image."
+    sync
     do_exit_error 4
   fi
 else
@@ -320,6 +322,7 @@ else
   if [ ! -e "$FLASHDIR/sys/active" -a ! -e "$FLASHDIR/sys/backup" ]; then
     rm -rf $FLASHDIR/sys/tmp >/dev/null 2>&1
     [ -z "$QUIET" ] && echo "Try to reformat flash."
+    sync
     do_exit_error 4
   fi
 
@@ -328,6 +331,7 @@ else
 	if ! rm -rf "$FLASHDIR/sys/$old" >/dev/null 2>&1; then
 	    rm -rf $FLASHDIR/sys/tmp >/dev/null 2>&1
 	    [ -z "$QUIET" ] && echo "Cannot remove old image."
+            sync
 	    do_exit_error 4
 	fi
     done
@@ -337,16 +341,19 @@ else
     if [ ! -e "$FLASHDIR/sys/active" -a ! -e "$FLASHDIR/sys/backup" ]; then
       rm -rf $FLASHDIR/sys/tmp >/dev/null 2>&1
       [ -z "$QUIET" ] && echo "Try to reformat flash."
+      sync
       do_exit_error 4
     elif ! mv "$FLASHDIR/sys/tmp" "$FLASHDIR/sys/$IMG_INSTALL" >/dev/null 2>&1; then
 	rm -rf $FLASHDIR/sys/tmp >/dev/null 2>&1
 	[ -z "$QUIET" ] && echo "Cannot install new image."
+        sync
 	do_exit_error 4
     fi
   else
     rm -rf $FLASHDIR/sys/tmp >/dev/null 2>&1
     if [ -z "$FORCE" ]; then
       [ -z "$QUIET" ] && echo "Need to remove all images."
+      sync
       do_exit_error 5
     fi
 
@@ -356,6 +363,7 @@ else
 	if ! rm -rf "$FLASHDIR/sys/$old" >/dev/null 2>&1; then
 	    rm -rf $FLASHDIR/sys/tmp >/dev/null 2>&1
 	    [ -z "$QUIET" ] && echo "Cannot remove all images."
+            sync
 	    do_exit_error 4
 	fi
     done
@@ -363,12 +371,14 @@ else
     if ! mv $TEMP/* $FLASHDIR/sys/tmp >/dev/null 2>&1 ; then
       rm -rf $FLASHDIR/sys/tmp >/dev/null 2>&1
       [ -z "$QUIET" ] && echo "Try to reformat flash."
+      sync
       do_exit_error 4
     fi
 
     if ! mv "$FLASHDIR/sys/tmp" "$FLASHDIR/sys/$IMG_INSTALL" >/dev/null 2>&1; then
 	rm -rf $FLASHDIR/sys/tmp >/dev/null 2>&1
 	[ -z "$QUIET" ] && echo "Cannot install new image."
+        sync
 	do_exit_error 4
     fi
   fi
@@ -413,6 +423,7 @@ if [ -z "$MBRLIST" ]; then
     echo "FATAL: MBR not found."
     echo "Please check the 'mbr' parameter on kernel command line."
   fi
+  sync
   do_exit_error 3
 fi
                      
@@ -432,6 +443,7 @@ for mbrdev in $MBRLIST; do
     err=1
   fi
 done
+sync
 [ -z "$err" ] || do_exit_error 4
 
 [ -z "$QUIET" ] && echo "Active image updated."

@@ -125,3 +125,4 @@ for mbrdev in $FLASH_MBR "${mbrlist[@]}"; do
   $bin $mbrdev -2
 done
 umount_flash
+sync
