@@ -162,8 +162,8 @@ umount_hardw() {
 mount_flash() {
     ( cd / ; $MOUNT -nr "/dev/$FLASH_SW" "$FLASH_DIR" ) >/dev/null 2>&1
     [ $? -gt 0 ] && return 1
-    [ -s "$FLASH_DIR/sys/active/kernel.img" ] && FOUND_IMG1=1
-    [ -s "$FLASH_DIR/sys/backup/kernel.img" ] && FOUND_IMG2=1
+    [ -s "$FLASH_DIR/sys/active/kernel.img" ] && FOUND_IMG1=$( cat $FLASH_DIR/sys/active/system.ver )
+    [ -s "$FLASH_DIR/sys/backup/kernel.img" ] && FOUND_IMG2=$( cat $FLASH_DIR/sys/backup/system.ver )
     [ -d "$FLASH_DIR/sys/." -a -d "$FLASH_DIR/cfg/." ] && return 0
     umount_flash
     return 1

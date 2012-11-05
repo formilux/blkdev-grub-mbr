@@ -102,6 +102,29 @@ seq=1
 TEMP="/tmp/temp-$$_$seq"
 
 do_exit_ok() {
+  local lmount
+  local img1
+  local img2
+
+  lmount=""
+  img1=""
+  img2=""
+  if [ ! -d "/flash/sys" ] ; then
+        /sbin/mount-flash 2>/dev/null >&2
+        lmount=1
+  fi
+
+  grep -v ^FOUND_IMG /var/state/flash-layout.rc > /var/state/flash-layout.rc.tmp
+  [ -e "/flash/sys/active/system.ver" ] && img1=$( cat /flash/sys/active/system.ver )
+  [ -e "/flash/sys/backup/system.ver" ] && img2=$( cat /flash/sys/backup/system.ver )
+  [ -n "$img1" ] && echo "FOUND_IMG1=$img1" >> /var/state/flash-layout.rc.tmp
+  [ -n "$img2" ] && echo "FOUND_IMG2=$img2" >> /var/state/flash-layout.rc.tmp
+  mv /var/state/flash-layout.rc.tmp /var/state/flash-layout.rc
+
+  if [ -n "$lmount" ] ; then
+        /bin/umount /flash
+  fi
+
   [ -n "$MOUNTED" ] && \
     ( [ -n "$MOUNTED_RO" ] && mount -ro remount $FLASHDIR || umount $FLASHDIR ) >/dev/null 2>&1
   if [ -n "$TEMP" ]; then
@@ -112,6 +135,29 @@ do_exit_ok() {
 
 # exits with the code passed in the first argument if any, otherwise with 1.
 do_exit_error() {
+  local lmount
+  local img1
+  local img2
+
+  lmount=""
+  img1=""
+  img2=""
+  if [ ! -d "/flash/sys" ] ; then
+        /sbin/mount-flash 2>/dev/null >&2
+        lmount=1
+  fi
+
+  grep -v ^FOUND_IMG /var/state/flash-layout.rc > /var/state/flash-layout.rc.tmp
+  [ -e "/flash/sys/active/system.ver" ] && img1=$( cat /flash/sys/active/system.ver )
+  [ -e "/flash/sys/backup/system.ver" ] && img2=$( cat /flash/sys/backup/system.ver )
+  [ -n "$img1" ] && echo "FOUND_IMG1=$img1" >> /var/state/flash-layout.rc.tmp
+  [ -n "$img2" ] && echo "FOUND_IMG2=$img2" >> /var/state/flash-layout.rc.tmp
+  mv /var/state/flash-layout.rc.tmp /var/state/flash-layout.rc
+
+  if [ -n "$lmount" ] ; then
+        /bin/umount /flash
+  fi
+
   err=$1
   [ -n "$MOUNTED" ] && \
     ( [ -n "$MOUNTED_RO" ] && mount -ro remount $FLASHDIR || umount $FLASHDIR ) >/dev/null 2>&1
