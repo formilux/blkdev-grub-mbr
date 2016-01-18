@@ -57,7 +57,7 @@ FLASH_CMDLINE=
 
 # utility functions
 get_flash_from_cmdline() {
-    flash="$(cat $PROC_CMDL)"
+    flash=" $(cat $PROC_CMDL)"
     [ -z "${flash##*[ 	]flash=*}" ] || return 1
     flash="${flash##*[ 	]flash=}"
     flash="${flash%% *}"
@@ -66,7 +66,7 @@ get_flash_from_cmdline() {
 }
 
 get_img_from_cmdline() {
-    img="$(cat $PROC_CMDL)"
+    img=" $(cat $PROC_CMDL)"
     [ -z "${img##*[ 	]img=*}" ] || return 1
     img="${img##*[ 	]img=}"
     img="${img%% *}"
