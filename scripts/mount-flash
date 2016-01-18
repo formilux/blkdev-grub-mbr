@@ -26,7 +26,7 @@ mount_flash_ro() {
 
   if [ -z "$FLASH_SW" ]; then
     flash="$(cat /proc/cmdline)"
-    if [ -n "${flash##*flash=*}" ]; then
+    if [ -z "$flash" -o -n "${flash##*flash=*}" ]; then
       echo "No flash device specified in /proc/cmdline."
       return 1
     fi
