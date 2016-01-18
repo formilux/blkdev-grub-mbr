@@ -215,7 +215,7 @@ try_mount_from_mbr() {
     get_next_part $FLASH_MBR $FLASH_HW || return 1
     FLASH_SW=$REPLY
     get_part_size $FLASH_SW || return 1
-    [ $REPLY -ge 8192 ] || return 1
+    [ $REPLY -ge 8064 ] || return 1
 
     # now try to mount $FLASH_SW
     mount_flash && return 0
@@ -253,7 +253,7 @@ try_mount_from_part() {
         get_part_size $FLASH_HW || return 1
         [ $REPLY -ge 1024 ] || return 1
         get_part_size $FLASH_SW || return 1
-        [ $REPLY -ge 8192 ] || return 1
+        [ $REPLY -ge 8064 ] || return 1
 
         # now try to mount $FLASH_SW
         if mount_flash; then
