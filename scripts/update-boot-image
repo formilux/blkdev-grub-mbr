@@ -110,8 +110,7 @@ do_exit_ok() {
   img1=""
   img2=""
   if [ ! -d "/flash/sys" ] ; then
-        /sbin/mount-flash 2>/dev/null >&2
-        lmount=1
+        /sbin/mount-flash 2>/dev/null >&2 && lmount=1
   fi
 
   grep -v ^FOUND_IMG /var/state/flash-layout.rc > /var/state/flash-layout.rc.tmp
