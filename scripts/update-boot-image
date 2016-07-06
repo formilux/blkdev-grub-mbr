@@ -25,9 +25,10 @@
 ##    5 : not enough space on flash, but removable dirs exist
 ## 
 #
-# This script needs : tr, grep, cut, mount, umount, grub-mbr-default in its
-#                     PATH, /proc mounted, and flash unmounted.
-# This script may use : /sbin/mk-flash-layout and /var/state/flash-layout.rc
+# This script needs : tr, grep, cut, mount, umount, grub-mbr-default, tar in
+#                     its PATH, /proc mounted, and flash unmounted.
+# This script may use : /sbin/mk-flash-layout, /var/state/flash-layout.rc,
+#                       tty, date, chattr, ls, /usr/share/factory/version
 #
 # WARNING! This script needs to be able to run under busybox, so please limit
 # the fantasy !
@@ -46,6 +47,7 @@ SHOW_VERSION=
 KEEP_FILES=
 MODEL=
 MBRLIST=
+PROG="${0##*/}"
 
 # automatic detection of the image to remove (active/backup)
 # IMG_DELETE and IMG_KEEP may be a list
@@ -213,6 +215,72 @@ get_from_cmdline() {
     REPLY="${REPLY%% *}"
 }
 
+# retrieves the current date in the format "YYYY/mm/dd HH:MM:SS" or returns
+# "unknown" if not possible. The result is in $REPLY. Getting the date may be
+# tricky on reduced systems.
+get_date()
+{
+  local month day m
+
+  REPLY=$(date +"%Y/%m/%d %H:%M:%S" 2>/dev/null)
+  [ -n "$REPLY" ] && return 0
+
+  # we're on a reduced system, let's try "tar c|tar tv"
+  set -- $(cd /proc/$$ 2>/dev/null && tar cf - cwd 2>/dev/null | tar tvf - 2>/dev/null) 2>/dev/null
+  if [ -n "$4$5" ]; then
+    REPLY="$4 $5"
+    return 0
+  fi
+
+  # let's try with "ls -lade" which is supported on busybox
+  set -- $(ls -lade /proc/$$ 2>/dev/null)
+  month=1
+  for m in Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec; do
+    [ "$7" != "$m" ] || break
+    month=$((month+1))
+  done
+
+  if [ $month -lt 13 ]; then
+    [ $month -ge 10 ] || month="0$month"
+    day=$8;
+    [ $((day+0)) -lt 1 -o $((day+0)) -ge 10 ] || day="0$day"
+    REPLY="$10/$month/$day $9"
+    return 0
+  fi
+
+  REPLY="unknown"
+  return 1
+}
+
+# Usage: $0 <step> <message>|<status>
+write_journal()
+{
+  local date product model version tty
+  local step="$1"
+  local message="$2"
+
+  get_date; date="$REPLY"
+
+  if tty -s 2>/dev/null; then
+    tty=$(tty 2>/dev/null)
+    tty=${tty#/dev/}
+  else
+    tty="none"
+  fi
+
+  if [ -s /usr/share/factory/version ]; then
+	  set -- $(grep "^Product:" /usr/share/factory/version); product="$2"
+	  set -- $(grep "^Model:" /usr/share/factory/version);   model="$2"
+	  set -- $(grep "^Version:" /usr/share/factory/version); version="$2"
+  else
+	  product="unknown"; model="unknown"; version="unknown"
+  fi
+
+  echo "$date $product $model $version $tty $PROG: $step: $message" >> "$FLASHDIR/.journal" 2>/dev/null
+  chattr +a "$FLASHDIR/.journal" >/dev/null 2>&1
+}
+
+#### main continues here
 while [ $seq -lt 1000 ] && ! mkdir "$TEMP" >/dev/null 2>&1; do
   seq=$(($seq+1))
   TEMP="/tmp/temp-$$_$seq"
@@ -343,6 +411,8 @@ if [ -z "$IMG_INSTALL" ]; then
     fi
 fi
 
+write_journal "mount" "flash mounted R/W to write image version $IMGVER as $IMG_INSTALL"
+
 rm -rf $FLASHDIR/sys/tmp >/dev/null 2>&1
 if mv $TEMP/* $FLASHDIR/sys/tmp >/dev/null 2>&1; then
   if [ -e "$FLASHDIR/sys/active" -a -e "$FLASHDIR/sys/backup" ]; then
@@ -350,14 +420,17 @@ if mv $TEMP/* $FLASHDIR/sys/tmp >/dev/null 2>&1; then
 	if ! rm -rf "$FLASHDIR/sys/$old" >/dev/null 2>&1; then
 	    rm -rf $FLASHDIR/sys/tmp >/dev/null 2>&1
 	    [ -z "$QUIET" ] && echo "Cannot remove old image."
+	    write_journal "rm" "Aborting: cannot remove image $old"
             sync
 	    do_exit_error 4
 	fi
+	write_journal "rm" "removed previous $old image after mv succeeded"
     done
   fi
   if ! mv "$FLASHDIR/sys/tmp" "$FLASHDIR/sys/$IMG_INSTALL" >/dev/null 2>&1; then
     rm -rf $FLASHDIR/sys/tmp >/dev/null 2>&1
     [ -z "$QUIET" ] && echo "Cannot install new image."
+    write_journal "mv" "Aborting: cannot rename image tmp to $IMG_INSTALL"
     sync
     do_exit_error 4
   fi
@@ -367,6 +440,7 @@ else
   if [ ! -e "$FLASHDIR/sys/active" -a ! -e "$FLASHDIR/sys/backup" ]; then
     rm -rf $FLASHDIR/sys/tmp >/dev/null 2>&1
     [ -z "$QUIET" ] && echo "Try to reformat flash."
+    write_journal "mv" "Aborting: mv failed with no image to remove"
     sync
     do_exit_error 4
   fi
@@ -376,9 +450,11 @@ else
 	if ! rm -rf "$FLASHDIR/sys/$old" >/dev/null 2>&1; then
 	    rm -rf $FLASHDIR/sys/tmp >/dev/null 2>&1
 	    [ -z "$QUIET" ] && echo "Cannot remove old image."
+	    write_journal "rm" "Aborting: cannot remove image $old"
             sync
 	    do_exit_error 4
 	fi
+	write_journal "rm" "removed previous $old image (mv needs some room)"
     done
   fi
 
@@ -386,11 +462,13 @@ else
     if [ ! -e "$FLASHDIR/sys/active" -a ! -e "$FLASHDIR/sys/backup" ]; then
       rm -rf $FLASHDIR/sys/tmp >/dev/null 2>&1
       [ -z "$QUIET" ] && echo "Try to reformat flash."
+      write_journal "mv" "Aborting: mv failed with no image to remove"
       sync
       do_exit_error 4
     elif ! mv "$FLASHDIR/sys/tmp" "$FLASHDIR/sys/$IMG_INSTALL" >/dev/null 2>&1; then
 	rm -rf $FLASHDIR/sys/tmp >/dev/null 2>&1
 	[ -z "$QUIET" ] && echo "Cannot install new image."
+	write_journal "mv" "Aborting: cannot rename image tmp to $IMG_INSTALL"
         sync
 	do_exit_error 4
     fi
@@ -398,6 +476,7 @@ else
     rm -rf $FLASHDIR/sys/tmp >/dev/null 2>&1
     if [ -z "$FORCE" ]; then
       [ -z "$QUIET" ] && echo "Need to remove all images."
+      write_journal "mv" "Aborting: would need to remove all images"
       sync
       do_exit_error 5
     fi
@@ -408,14 +487,17 @@ else
 	if ! rm -rf "$FLASHDIR/sys/$old" >/dev/null 2>&1; then
 	    rm -rf $FLASHDIR/sys/tmp >/dev/null 2>&1
 	    [ -z "$QUIET" ] && echo "Cannot remove all images."
+	    write_journal "rm" "Aborting: cannot remove image $old"
             sync
 	    do_exit_error 4
 	fi
+	write_journal "rm" "removed previous $old image to make more room"
     done
 
     if ! mv $TEMP/* $FLASHDIR/sys/tmp >/dev/null 2>&1 ; then
       rm -rf $FLASHDIR/sys/tmp >/dev/null 2>&1
       [ -z "$QUIET" ] && echo "Try to reformat flash."
+      write_journal "mv" "Aborting: mv failed with no more image to remove"
       sync
       do_exit_error 4
     fi
@@ -423,11 +505,14 @@ else
     if ! mv "$FLASHDIR/sys/tmp" "$FLASHDIR/sys/$IMG_INSTALL" >/dev/null 2>&1; then
 	rm -rf $FLASHDIR/sys/tmp >/dev/null 2>&1
 	[ -z "$QUIET" ] && echo "Cannot install new image."
+	write_journal "mv" "Aborting: cannot rename image tmp to $IMG_INSTALL"
         sync
 	do_exit_error 4
     fi
   fi
 fi
+
+write_journal "mv" "New image installed as $IMG_INSTALL"
 
 if ( [ -n "$MOUNTED_RO" ] && mount -ro remount $FLASHDIR || umount $FLASHDIR ) >/dev/null 2>&1; then
   MOUNTED=0
