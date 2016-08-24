@@ -194,6 +194,7 @@ dump_layout() {
     (   echo "FLASH_MBR=/dev/$FLASH_MBR"
         echo "FLASH_HW=/dev/$FLASH_HW"
         echo "FLASH_SW=/dev/$FLASH_SW"
+        [ -z "$FLASH_NV" ] || echo "FLASH_NV=/dev/$FLASH_NV"
 	echo "FOUND_IMG1=$FOUND_IMG1"
 	echo "FOUND_IMG2=$FOUND_IMG2"
     ) > "$LAYOUT_DIR/$LAYOUT_TMP"
@@ -217,6 +218,11 @@ try_mount_from_mbr() {
     get_part_size $FLASH_SW || return 1
     [ $REPLY -ge 8064 ] || return 1
 
+    if get_next_part $FLASH_MBR $FLASH_SW; then
+        FLASH_NV=$REPLY
+        get_part_size $FLASH_NV && [ $REPLY -ge 4096 ] || FLASH_NV=
+    fi
+
     # now try to mount $FLASH_SW
     mount_flash && return 0
 
@@ -229,6 +235,7 @@ try_mount_from_mbr() {
             FALLBACK_MBR=$FLASH_MBR
             FALLBACK_HW=$FLASH_HW
             FALLBACK_SW=$FLASH_SW
+            FALLBACK_NV=$FLASH_NV
         fi
     fi
     return 1
@@ -255,6 +262,11 @@ try_mount_from_part() {
         get_part_size $FLASH_SW || return 1
         [ $REPLY -ge 8064 ] || return 1
 
+	if get_next_part $FLASH_MBR $FLASH_SW; then
+            FLASH_NV=$REPLY
+            get_part_size $FLASH_NV && [ $REPLY -ge 4096 ] || FLASH_NV=
+	fi
+
         # now try to mount $FLASH_SW
         if mount_flash; then
             FLASH_TYPE=PART
@@ -270,6 +282,7 @@ try_mount_from_part() {
                 FALLBACK_MBR=$FLASH_MBR
                 FALLBACK_HW=$FLASH_HW
                 FALLBACK_SW=$FLASH_SW
+                FALLBACK_NV=$FLASH_NV
             fi
         fi
     else
@@ -438,6 +451,7 @@ try_mount() {
 	FLASH_MBR=$FALLBACK_MBR
 	FLASH_HW=$FALLBACK_HW
 	FLASH_SW=$FALLBACK_SW
+	FLASH_NV=$FALLBACK_NV
 
 	dump_layout
 	[ -z "$QUIET" ] && echo "Found unformatted flash on ${FLASH_SW}"
