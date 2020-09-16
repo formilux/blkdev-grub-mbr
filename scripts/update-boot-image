@@ -103,6 +103,15 @@ FILE="$1"
 seq=1
 TEMP="/tmp/temp-$$_$seq"
 
+# This function ensures that there is sufficient space
+# to create the output file.
+# It creates a temp file then renames it only f everything was OK
+write_to_file() {
+  rm -f "$1.tmp" || return 1
+  (cat > "$1.tmp") || { rm -f "$1.tmp" ; return 1; }
+  mv "$1.tmp" "$1"
+}
+
 do_exit_ok() {
   local lmount
   local img1
@@ -115,12 +124,13 @@ do_exit_ok() {
         /sbin/mount-flash 2>/dev/null >&2 && lmount=1
   fi
 
-  grep -v ^FOUND_IMG /var/state/flash-layout.rc > /var/state/flash-layout.rc.tmp
   [ -e "/flash/sys/active/system.ver" ] && img1=$( cat /flash/sys/active/system.ver )
   [ -e "/flash/sys/backup/system.ver" ] && img2=$( cat /flash/sys/backup/system.ver )
-  [ -n "$img1" ] && echo "FOUND_IMG1=$img1" >> /var/state/flash-layout.rc.tmp
-  [ -n "$img2" ] && echo "FOUND_IMG2=$img2" >> /var/state/flash-layout.rc.tmp
-  mv /var/state/flash-layout.rc.tmp /var/state/flash-layout.rc
+  ( \
+    grep -v ^FOUND_IMG /var/state/flash-layout.rc; \
+    [ -n "$img1" ] && echo "FOUND_IMG1=$img1"; \
+    [ -n "$img2" ] && echo "FOUND_IMG2=$img2"; \
+  ) | write_to_file /var/state/flash-layout.rc
 
   if [ -n "$lmount" ] ; then
         /bin/umount /flash
@@ -148,12 +158,13 @@ do_exit_error() {
         lmount=1
   fi
 
-  grep -v ^FOUND_IMG /var/state/flash-layout.rc > /var/state/flash-layout.rc.tmp
   [ -e "/flash/sys/active/system.ver" ] && img1=$( cat /flash/sys/active/system.ver )
   [ -e "/flash/sys/backup/system.ver" ] && img2=$( cat /flash/sys/backup/system.ver )
-  [ -n "$img1" ] && echo "FOUND_IMG1=$img1" >> /var/state/flash-layout.rc.tmp
-  [ -n "$img2" ] && echo "FOUND_IMG2=$img2" >> /var/state/flash-layout.rc.tmp
-  mv /var/state/flash-layout.rc.tmp /var/state/flash-layout.rc
+  ( \
+    grep -v ^FOUND_IMG /var/state/flash-layout.rc; \
+    [ -n "$img1" ] && echo "FOUND_IMG1=$img1"; \
+    [ -n "$img2" ] && echo "FOUND_IMG2=$img2"; \
+  ) | write_to_file /var/state/flash-layout.rc
 
   if [ -n "$lmount" ] ; then
         /bin/umount /flash
